@@ -26,7 +26,7 @@ image_source_dir = cp["DEFAULT"].get("image_source_dir")
 output_weights_name = cp["TRAIN"].get("output_weights_name")
 
 print(output_weights_name)
-best_weights_path = os.path.join(output_dir, f"best_{output_weights_name}")
+best_weights_path = os.path.join(output_dir, "best_weights.h5")
 
 print("** load model **")
 model_weights_path = best_weights_path
@@ -43,7 +43,6 @@ app = Flask(__name__)
 @app.route("/score/")
 def score_image():
     filename = request.args['file']
-    print(f"Got file name {filename}")
 
     #image_path = os.path.join(image_source_dir, filename)
     #image = Image.open(image_path)
@@ -57,8 +56,8 @@ def score_image():
     y_hat = model.predict(image_array, 1)
     prediction = class_names[np.argmax(y_hat)]
 
-    print(f"Model score for image is: {y_hat}")
-    print(f"Highest probability is: {prediction}")
+    print("Model score for image is: {}".format(y_hat))
+    print("Highest probability is: {}".format(prediction))
 
     return jsonify(prediction)
 
