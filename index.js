@@ -5,14 +5,16 @@ const fs = require('fs-extra');
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
 const dicom = require('dicom-parser/dist/dicomParser');
+const aiMktApi = require('@nuance/ai-marketplace-api');
 require('dotenv').load();
 
 const imageRootDir = process.env.IMAGE_ROOT_DIR;
-const AiMktPlaceAPI = process.env.AI_TRANSACTIONS_ENDPOINT;
 const serviceKey = process.env.SERVICE_KEY;
 const hostname = '0.0.0.0';
 const port = 3000;
 const modelEndpoint = 'http://127.0.0.1:8000/score/?file=';
+const aiTransactions = new aiMktApi(process.env.AI_TRANSACTIONS_ENDPOINT, 
+                                    process.env.AI_TRANSACTIONS_KEY)
 
 const server = http
   .createServer((req, res) => {
@@ -48,7 +50,7 @@ const server = http
         const result = await runModel(studyFolder + '/preprocess');
         console.log(`AI model returned: ${result[0].data}`);
         const postProcessedData = postProcessToJson(result);
-        await postToAIMarketplace(transactionId, postProcessedData);
+        await aiTransactions.uploadResult(transactionId, serviceKey, 'test', postProcessedData);
       });
     res.statusCode = 200;
     res.setHeader('Content-Type', 'text/plain');
@@ -104,30 +106,3 @@ const postProcessToJson = allResults =>
       { findings: [] }
     )
   );
-
-// This function may need to be customized if more than just JSON results are returned
-const postToAIMarketplace = async (transactionId, data) => {
-  let url = `${AiMktPlaceAPI}/${transactionId}/results`;
-  const body = {
-    serviceKey,
-    resultKey: 'test'
-  };
-  const response = await axios.post(url, body);
-  const resultId = response.data.result.id;
-  url = `${url}/${resultId}/documents`;
-  const config = {
-    headers: {
-      'content-type': 'multipart/form-data'
-    }
-  };
-  fs.writeFileSync('result.json', data, 'utf8');
-  form = new FormData();
-  form.append('documentType', 'json');
-  form.append('name', 'AI result');
-  form.append('file', fs.createReadStream('result.json'));
-  console.log(url);
-  form.submit(url, (err, res) => {
-    if (!err) console.log('submission success');
-    fs.unlinkSync('result.json');
-  });
-};
