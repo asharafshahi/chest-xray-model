@@ -1,5 +1,5 @@
 {
-  "name": "Chest Xray AI",
+  "name": "chest-xray-model",
   "version": "1.0.0",
   "description": "Chest Xray Model with AI Marketplace Model Wrapper",
   "main": "index.js",
