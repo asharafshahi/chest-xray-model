@@ -28,7 +28,7 @@ const server = http
       .on('end', async () => {
         body = Buffer.concat(body).toString();
         const { transactionId, uris } = JSON.parse(body);
-        let studyFolder, studyUid, imageUid;;
+        let studyFolder, studyUid, imageUid;
         await Promise.all(
           uris.map(async url => {
             try {
