@@ -1,15 +1,20 @@
 const http = require('http');
 const axios = require('axios');
+const FormData = require('form-data');
 const fs = require('fs-extra');
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
 const dicom = require('dicom-parser/dist/dicomParser');
+const aiMktApi = require('@nuance/ai-marketplace-api');
 require('dotenv').load();
 
 const imageRootDir = process.env.IMAGE_ROOT_DIR;
+const serviceKey = process.env.SERVICE_KEY;
 const hostname = '0.0.0.0';
 const port = 3000;
-const modelEndpoint = 'http://127.0.0.1:8000/score/?file='
+const modelEndpoint = 'http://127.0.0.1:8000/score/?file=';
+const aiTransactions = new aiMktApi(process.env.AI_TRANSACTIONS_ENDPOINT, 
+                                    process.env.AI_TRANSACTIONS_KEY)
 
 const server = http
   .createServer((req, res) => {
@@ -22,26 +27,33 @@ const server = http
       })
       .on('end', async () => {
         body = Buffer.concat(body).toString();
-        response = JSON.parse(body);
-        let studyFolder;
-        await Promise.all(response.uris.map(async url => {
-          try {
-            const result = await axios.get(url, {responseType: 'arraybuffer'});
-            const { studyUid, imageUid } = getUids(result.data);
-            studyFolder = `${imageRootDir}/${studyUid}`;
-            const outputFilename = `${imageRootDir}/${studyUid}/${imageUid}.dcm`;
-            fs.ensureDirSync(studyFolder);
-            fs.writeFileSync(outputFilename, result.data);
-            console.log(`Wrote file ${outputFilename}`); 
-            await preProcessToPng(studyFolder);
-
-         } catch (err) {
-           console.error(err);
-         }
-       }));
-       const result = await runModel(studyFolder + '/preprocess');
-       console.log(result[0].data);
-    });
+        const { transactionId, uris } = JSON.parse(body);
+        let studyFolder, studyUid, imageUid;;
+        await Promise.all(
+          uris.map(async url => {
+            try {
+              const result = await axios.get(url, {
+                responseType: 'arraybuffer'
+              });
+              ({ studyUid, imageUid } = getUids(result.data));
+              studyFolder = `${imageRootDir}/${studyUid}`;
+              const outputFilename = `${imageRootDir}/${studyUid}/${imageUid}.dcm`;
+              fs.ensureDirSync(studyFolder);
+              fs.writeFileSync(outputFilename, result.data);
+              console.log(`Wrote file ${outputFilename}`);
+            } catch (err) {
+              console.error(err);
+            }
+          })
+        );
+        const preProcessDir = `${imageRootDir}/preprocess/${studyUid}`;
+        await preProcessToPng(studyFolder, preProcessDir);
+        const result = await runModel(preProcessDir);
+        console.log(`AI model returned: ${result[0].data}`);
+        const postProcessedData = postProcessToJson(result);
+        const resultId = await aiTransactions.createResult(transactionId, serviceKey, 'test');
+        await aiTransactions.uploadResultData(transactionId, resultId, postProcessedData);
+      });
     res.statusCode = 200;
     res.setHeader('Content-Type', 'text/plain');
     res.end('Acknowledged\n');
@@ -57,21 +69,37 @@ const getUids = dicomData => {
   return { studyUid, imageUid };
 };
 
-const preProcessToPng = async directory => {
-  const fileList = fs.readdirSync(directory);
-  fs.ensureDirSync(directory + '/preprocess');
-  await Promise.all(fileList.map(file =>
-    exec(`gdcm2vtk ${directory + '/' + file} ${directory + '/preprocess/' +
-          file.substr(0,file.length - 4) + '.png'}`)
-  ));
+// This function will be customized/replaced for each model based on needs
+const preProcessToPng = async (sourceDir, destDir) => {
+  const fileList = fs.readdirSync(sourceDir);
+  fs.ensureDirSync(destDir);
+  await Promise.all(
+    fileList.map(file =>
+      exec(`gdcm2vtk ${sourceDir + '/' + file} ${destDir}/${file.substr(0, file.length - 4)}.png`)
+    )
+  );
   return;
-}
+};
 
 const runModel = async directory => {
   const fileList = fs.readdirSync(directory);
-  return await Promise.all(fileList.map(file => {
-    const url =`${modelEndpoint}${directory + '/' + file}`; 
-    console.log(url);
-    return axios.get(url);
-  }));
-}
+  return await Promise.all(
+    fileList.map(file => {
+      const url = `${modelEndpoint}${directory + '/' + file}`;
+      console.log(url);
+      return axios.get(url);
+    })
+  );
+};
+
+// This function will be customized/replaced for each model based on needs
+const postProcessToJson = allResults =>
+  JSON.stringify(
+    allResults.reduce(
+      (acc, curr) => {
+        acc.findings.push(curr.data);
+        return acc;
+      },
+      { findings: [] }
+    )
+  );
