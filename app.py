@@ -38,6 +38,8 @@ model = model_factory.get_model(
     use_base_weights=False,
     weights_path=model_weights_path)
 
+model._make_predict_function()
+
 app = Flask(__name__)
 
 @app.route("/score/")
